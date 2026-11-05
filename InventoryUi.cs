@@ -31,6 +31,9 @@ namespace Deadheim.InventoryUI
         private static string _selectedReal;
         private static string _selectedAppearance;
         private static bool _ownsPreview;
+        private static bool _nativeHidden;
+        private static readonly List<(CanvasGroup group, float alpha, bool blocks, bool added)> _nativeGroups =
+            new List<(CanvasGroup, float, bool, bool)>();
 
         internal static void Open(InventoryGui gui)
         {
@@ -48,6 +51,7 @@ namespace Deadheim.InventoryUI
         internal static void Close()
         {
             _open = false;
+            HideNative(false);
             if (_root != null) _root.gameObject.SetActive(false);
             ClearOwnedPreview();
             _selectedAppearance = null;
@@ -81,6 +85,8 @@ namespace Deadheim.InventoryUI
             if (gui == null || gui.m_crafting == null || !ValheimUi.EnsureAssets()) return false;
             if (_gui == gui && _root != null) return true;
 
+            HideNative(false);
+            ClearOwnedPreview();
             if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
             _gui = gui;
             _root = ValheimUi.Rect("DeadheimInventoryPanel", gui.m_crafting);
@@ -151,6 +157,7 @@ namespace Deadheim.InventoryUI
             UpdateTabs();
 
             bool crafting = _page == Page.Crafting;
+            HideNative(!crafting);
             _background.enabled = !crafting;
             _body.parent.gameObject.SetActive(!crafting);
             _status.transform.parent.gameObject.SetActive(!crafting);
@@ -574,8 +581,63 @@ namespace Deadheim.InventoryUI
 
         private static void ClearChildren(Transform parent)
         {
+            // Destroy só age no fim do frame; desativar antes tira os filhos antigos do layout agora.
             for (int index = parent.childCount - 1; index >= 0; index--)
-                UnityEngine.Object.Destroy(parent.GetChild(index).gameObject);
+            {
+                GameObject child = parent.GetChild(index).gameObject;
+                child.SetActive(false);
+                UnityEngine.Object.Destroy(child);
+            }
+        }
+
+        // Esconde (alpha 0, sem raycast) os filhos nativos do painel de crafting enquanto o painel
+        // do mod está aberto. CanvasGroup evita brigar com os SetActive que o jogo faz neles.
+        private static void HideNative(bool hide)
+        {
+            if (hide == _nativeHidden) return;
+            if (hide)
+            {
+                if (_gui == null || _gui.m_crafting == null) return;
+                _nativeGroups.Clear();
+                Transform crafting = _gui.m_crafting;
+                for (int index = 0; index < crafting.childCount; index++)
+                {
+                    Transform child = crafting.GetChild(index);
+                    if (_root != null && child == _root) continue;
+                    CanvasGroup group = child.GetComponent<CanvasGroup>();
+                    bool added = group == null;
+                    if (added) group = child.gameObject.AddComponent<CanvasGroup>();
+                    _nativeGroups.Add((group, group.alpha, group.blocksRaycasts, added));
+                    group.alpha = 0f;
+                    group.blocksRaycasts = false;
+                }
+                _nativeHidden = true;
+                return;
+            }
+
+            foreach (var entry in _nativeGroups)
+            {
+                if (entry.group == null) continue;
+                if (entry.added) UnityEngine.Object.Destroy(entry.group);
+                else
+                {
+                    entry.group.alpha = entry.alpha;
+                    entry.group.blocksRaycasts = entry.blocks;
+                }
+            }
+            _nativeGroups.Clear();
+            _nativeHidden = false;
+        }
+
+        // Chamado ao sair do mundo: solta tudo que pertence à cena que vai ser destruída.
+        internal static void Reset()
+        {
+            Close();
+            if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
+            _root = null;
+            _gui = null;
+            _selectedReal = null;
+            _selectedAppearance = null;
         }
     }
 
@@ -583,6 +645,12 @@ namespace Deadheim.InventoryUI
     internal static class InventoryGuiShowPatch
     {
         private static void Postfix(InventoryGui __instance) => InventoryUi.Open(__instance);
+    }
+
+    [HarmonyPatch(typeof(Game), nameof(Game.Logout))]
+    internal static class GameLogoutPatch
+    {
+        private static void Prefix() => InventoryUi.Reset();
     }
 
     [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Hide))]

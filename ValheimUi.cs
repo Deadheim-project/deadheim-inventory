@@ -19,6 +19,7 @@ namespace Deadheim.InventoryUI
         private static Sprite _buttonSprite;
         private static Sprite _fieldSprite;
         private static bool _ready;
+        private static float _nextAssetTry;
 
         internal static Sprite PanelSprite => _panelSprite;
         internal static Sprite FieldSprite => _fieldSprite;
@@ -26,6 +27,9 @@ namespace Deadheim.InventoryUI
         internal static bool EnsureAssets()
         {
             if (_ready) return true;
+            // Falhou há pouco: não varrer todos os sprites/fontes de novo a cada frame.
+            if (Time.unscaledTime < _nextAssetTry) return false;
+            _nextAssetTry = Time.unscaledTime + 3f;
             _bodyFont = Resources.FindObjectsOfTypeAll<TMP_FontAsset>()
                 .FirstOrDefault(font => font != null && font.name == "Valheim-AveriaSansLibre");
             _displayFont = Resources.FindObjectsOfTypeAll<TMP_FontAsset>()
