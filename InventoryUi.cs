@@ -25,7 +25,7 @@ namespace Deadheim.InventoryUI
         private static bool _open;
         private static bool _needsBuild;
         private static float _nextSignatureCheck;
-        private static string _lastSignature;
+        private static int _lastSignature;
         private static string _statusText = "";
         private static Color _statusColor = ValheimUi.Muted;
         private static string _selectedReal;
@@ -156,11 +156,12 @@ namespace Deadheim.InventoryUI
             _status.transform.parent.gameObject.SetActive(!crafting);
             if (crafting)
             {
-                _lastSignature = "craft";
+                _lastSignature = 0;
+                _needsBuild = true;
                 return;
             }
 
-            string signature = Signature();
+            int signature = Signature();
             if (!force && !_needsBuild && signature == _lastSignature)
             {
                 SetStatus(_statusText, _statusColor);
@@ -195,18 +196,40 @@ namespace Deadheim.InventoryUI
                 EventSystem.current.SetSelectedGameObject(selectable != null ? selectable.gameObject : null);
         }
 
-        private static string Signature()
+        // Hash sem alocação (sem strings/LINQ): roda a cada 0,35 s com a UI aberta.
+        // A soma dos hashes por item não depende da ordem da lista.
+        private static int Signature()
         {
             var player = Player.m_localPlayer;
             Inventory inventory = player != null ? player.GetInventory() : null;
-            string items = inventory == null ? "no-player" : string.Join("|", inventory.GetAllItems()
-                .Where(item => item != null)
-                .Select(item => (item.m_dropPrefab != null ? item.m_dropPrefab.name : "?") + ":" +
-                                item.m_stack + ":" + item.m_quality + ":" + item.m_durability.ToString("0.0") + ":" +
-                                item.m_gridPos.x + "," + item.m_gridPos.y + ":" + item.m_equipped)
-                .OrderBy(value => value, StringComparer.Ordinal));
-            return _page + ";" + items + ";transmog=" + (TransmogBridge.Available ? TransmogBridge.Revision() : -1) +
-                   ";real=" + _selectedReal + ";look=" + _selectedAppearance;
+            unchecked
+            {
+                int items = 0;
+                if (inventory != null)
+                {
+                    List<ItemDrop.ItemData> all = inventory.GetAllItems();
+                    for (int index = 0; index < all.Count; index++)
+                    {
+                        ItemDrop.ItemData item = all[index];
+                        if (item == null) continue;
+                        int h = item.m_dropPrefab != null ? item.m_dropPrefab.name.GetHashCode() : 0;
+                        h = h * 31 + item.m_stack;
+                        h = h * 31 + item.m_quality;
+                        h = h * 31 + (int)item.m_durability;
+                        h = h * 31 + item.m_gridPos.x;
+                        h = h * 31 + item.m_gridPos.y;
+                        h = h * 31 + (item.m_equipped ? 1 : 0);
+                        items += h * 16777619 + 1;
+                    }
+                }
+                int result = (int)_page;
+                result = result * 31 + (inventory == null ? 1 : 2);
+                result = result * 31 + items;
+                result = result * 31 + (TransmogBridge.Available ? TransmogBridge.Revision() : -1);
+                result = result * 31 + (_selectedReal != null ? _selectedReal.GetHashCode() : 0);
+                result = result * 31 + (_selectedAppearance != null ? _selectedAppearance.GetHashCode() : 0);
+                return result;
+            }
         }
 
         private static void BuildEquipment()
