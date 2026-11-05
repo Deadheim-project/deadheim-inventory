@@ -318,13 +318,31 @@ namespace Deadheim.InventoryUI
             string detail = item == null ? "Nenhum item neste espaço" : ItemDetail(item);
             var subtitle = ValheimUi.Label(texts, detail, 12, ValheimUi.Muted);
             ValheimUi.FixedHeight(subtitle.gameObject, 19f);
+            AddItemTooltip(row.gameObject, item);
         }
+
+        private static void AddItemTooltip(GameObject target, ItemDrop.ItemData item)
+        {
+            if (item == null || Plugin.ShowTooltips == null || !Plugin.ShowTooltips.Value) return;
+            try { ValheimUi.AddTooltip(target, ItemName(item), TooltipOf(item)); }
+            catch (Exception exception) { Plugin.Log.LogWarning("Tooltip do item: " + exception.Message); }
+        }
+
+        private static string TooltipOf(ItemDrop.ItemData item) => item.GetTooltip();
 
         private static string ItemDetail(ItemDrop.ItemData item)
         {
             string quality = item.m_quality > 1 ? "Qualidade " + item.m_quality : "";
             string stack = item.m_stack > 1 ? " · x" + item.m_stack : "";
-            string durability = item.m_durability > 0f ? " · Durabilidade " + item.m_durability.ToString("0") : "";
+            string durability = "";
+            if (item.m_durability > 0f)
+            {
+                durability = " · Durabilidade " + item.m_durability.ToString("0");
+                float max = item.GetMaxDurability();
+                int threshold = Plugin.LowDurabilityPercent != null ? Plugin.LowDurabilityPercent.Value : 0;
+                if (item.m_shared.m_useDurability && max > 0f && item.m_durability / max * 100f < threshold)
+                    durability = " · <color=#FF6A4D>Durabilidade " + item.m_durability.ToString("0") + "</color>";
+            }
             return (quality + stack + durability).Trim(' ', '·');
         }
 
@@ -377,6 +395,7 @@ namespace Deadheim.InventoryUI
                 icon.sprite = ValheimUi.ItemIcon(item.m_dropPrefab.name);
                 icon.preserveAspect = true;
                 icon.raycastTarget = false;
+                AddItemTooltip(cell.gameObject, item);
             }
         }
 

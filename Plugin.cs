@@ -18,6 +18,9 @@ namespace Deadheim.InventoryUI
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<float> UiScale;
+        internal static ConfigEntry<bool> ReduceMotion;
+        internal static ConfigEntry<int> LowDurabilityPercent;
+        internal static ConfigEntry<bool> ShowTooltips;
 
         private Harmony _harmony;
 
@@ -26,6 +29,14 @@ namespace Deadheim.InventoryUI
             Log = Logger;
             UiScale = Config.Bind("Interface", "Scale", 1f,
                 new ConfigDescription("Escala visual do painel de equipamento.", new AcceptableValueRange<float>(0.8f, 1.2f)));
+
+            ReduceMotion = Config.Bind("Interface", "ReduceMotion", false,
+                "Remove as transições suaves de cor dos botões do painel.");
+            LowDurabilityPercent = Config.Bind("Interface", "LowDurabilityPercent", 25,
+                new ConfigDescription("Abaixo desta durabilidade (%) o valor aparece em vermelho. 0 desliga o aviso.",
+                    new AcceptableValueRange<int>(0, 50)));
+            ShowTooltips = Config.Bind("Interface", "ShowTooltips", true,
+                "Mostra o tooltip nativo do jogo ao passar o mouse sobre os itens do painel.");
 
             if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
             {

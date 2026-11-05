@@ -114,7 +114,7 @@ namespace Deadheim.InventoryUI
                 selectedColor = Color.white,
                 disabledColor = new Color(0.5f, 0.48f, 0.43f, 0.55f),
                 colorMultiplier = 1f,
-                fadeDuration = 0.12f
+                fadeDuration = Plugin.ReduceMotion != null && Plugin.ReduceMotion.Value ? 0f : 0.12f
             };
             var label = Label(rect, title, size, Orange, TextAlignmentOptions.Center);
             Stretch((RectTransform)label.transform, 6f, 2f, 6f, 2f);
@@ -170,6 +170,23 @@ namespace Deadheim.InventoryUI
             element.minWidth = width;
             element.preferredWidth = width;
             element.flexibleWidth = 0f;
+        }
+
+        private static GameObject _tooltipPrefab;
+
+        // Reaproveita o tooltip nativo do jogo (mesmo visual do inventário). Sem prefab, não faz nada.
+        internal static void AddTooltip(GameObject go, string topic, string text)
+        {
+            if (go == null || string.IsNullOrEmpty(text)) return;
+            if (_tooltipPrefab == null)
+                _tooltipPrefab = Resources.FindObjectsOfTypeAll<UITooltip>()
+                    .Select(tooltip => tooltip.m_tooltipPrefab)
+                    .FirstOrDefault(prefab => prefab != null);
+            if (_tooltipPrefab == null) return;
+            var tooltip = go.GetComponent<UITooltip>() ?? go.AddComponent<UITooltip>();
+            tooltip.m_tooltipPrefab = _tooltipPrefab;
+            tooltip.m_topic = topic ?? string.Empty;
+            tooltip.m_text = text;
         }
 
         internal static Sprite ItemIcon(string prefabName)
