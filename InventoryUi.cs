@@ -383,9 +383,9 @@ namespace Deadheim.InventoryUI
                 ("Berloque", Find(equipped, ItemDrop.ItemData.ItemType.Trinket)),
             };
             Player player = Player.m_localPlayer;
-            cells.Add(("Mão direita", player?.m_rightItem));
-            cells.Add(("Mão esquerda", player?.m_leftItem));
-            cells.Add(("Munição", player?.m_ammoItem));
+            cells.Add(("Mão direita", HumanoidItem(player, "m_rightItem")));
+            cells.Add(("Mão esquerda", HumanoidItem(player, "m_leftItem")));
+            cells.Add(("Munição", HumanoidItem(player, "m_ammoItem")));
 
             const int columns = 3;
             const float cell = 56f;
@@ -399,6 +399,18 @@ namespace Deadheim.InventoryUI
             layout.constraintCount = columns;
             ValheimUi.FixedHeight(grid.gameObject, rows * (cell + gap));
             foreach (var entry in cells) AddSlot(grid, entry.label, entry.item);
+        }
+
+        // Campos protegidos do Humanoid: o jogo roda o assembly original, então só por reflexão.
+        private static readonly Dictionary<string, System.Reflection.FieldInfo> HumanoidFields =
+            new Dictionary<string, System.Reflection.FieldInfo>();
+
+        private static ItemDrop.ItemData HumanoidItem(Player player, string field)
+        {
+            if (player == null) return null;
+            if (!HumanoidFields.TryGetValue(field, out var info))
+                HumanoidFields[field] = info = AccessTools.Field(typeof(Humanoid), field);
+            return info?.GetValue(player) as ItemDrop.ItemData;
         }
 
         private static ItemDrop.ItemData Find(List<ItemDrop.ItemData> equipped, ItemDrop.ItemData.ItemType type) =>
