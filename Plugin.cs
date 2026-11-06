@@ -21,7 +21,7 @@ namespace Deadheim.InventoryUI
         internal static ConfigEntry<bool> ReduceMotion;
         internal static ConfigEntry<int> LowDurabilityPercent;
         internal static ConfigEntry<bool> ShowTooltips;
-
+        internal static ConfigEntry<Vector2> PanelOffset;
         private Harmony _harmony;
 
         private void Awake()
@@ -35,6 +35,8 @@ namespace Deadheim.InventoryUI
             LowDurabilityPercent = Config.Bind("Interface", "LowDurabilityPercent", 25,
                 new ConfigDescription("Abaixo desta durabilidade (%) o valor aparece em vermelho. 0 desliga o aviso.",
                     new AcceptableValueRange<int>(0, 50)));
+            PanelOffset = Config.Bind("Interface", "PanelOffset", Vector2.zero,
+                "Deslocamento da ficha a partir da posição padrão (sob a grade). Arraste o título no jogo; clique duplo zera.");
             ShowTooltips = Config.Bind("Interface", "ShowTooltips", true,
                 "Mostra o tooltip nativo do jogo ao passar o mouse sobre os itens do painel.");
 
