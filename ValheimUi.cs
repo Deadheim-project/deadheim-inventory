@@ -191,6 +191,15 @@ namespace Deadheim.InventoryUI
             tooltip.m_text = text;
         }
 
+        // Texto montado só quando o mouse entra (GetTooltip é caro; antes rodava a cada rebuild).
+        internal static void AddLazyTooltip(GameObject go, string topic, System.Func<string> text)
+        {
+            if (go == null || text == null) return;
+            AddTooltip(go, topic, "...");
+            var lazy = go.GetComponent<LazyTooltip>() ?? go.AddComponent<LazyTooltip>();
+            lazy.Source = text;
+        }
+
         internal static Sprite ItemIcon(string prefabName)
         {
             if (ObjectDbAccess(prefabName, out var drop) && drop.m_itemData?.m_shared?.m_icons != null
@@ -207,6 +216,19 @@ namespace Deadheim.InventoryUI
             if (prefab == null) return false;
             drop = prefab.GetComponent<ItemDrop>();
             return drop != null;
+        }
+    }
+
+    internal sealed class LazyTooltip : MonoBehaviour, UnityEngine.EventSystems.IPointerEnterHandler
+    {
+        internal System.Func<string> Source;
+
+        public void OnPointerEnter(UnityEngine.EventSystems.PointerEventData eventData)
+        {
+            var tooltip = GetComponent<UITooltip>();
+            if (tooltip == null || Source == null) return;
+            try { tooltip.m_text = Source(); }
+            catch (System.Exception) { }
         }
     }
 }

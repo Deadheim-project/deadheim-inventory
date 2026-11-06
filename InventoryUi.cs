@@ -35,6 +35,8 @@ namespace Deadheim.InventoryUI
         private static Light _light;
         private static RenderTexture _texture;
         private static int _previewMask;
+        private static float _nextMaskUpdate;
+        private static float _nextRender;
 
         internal static void Open(InventoryGui gui)
         {
@@ -115,13 +117,13 @@ namespace Deadheim.InventoryUI
             background.color = new Color(1f, 1f, 1f, 0.99f);
 
             var left = ValheimUi.Rect("Equipment", _root);
-            ValheimUi.Anchor(left, new Vector2(0.03f, 0.10f), new Vector2(0.38f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(left, new Vector2(0.025f, 0.09f), new Vector2(0.41f, 0.96f), Vector2.zero, Vector2.zero);
             _list = ValheimUi.ScrollList(left, 5f);
 
             BuildPreview();
 
             var right = ValheimUi.Rect("AttributesFrame", _root);
-            ValheimUi.Anchor(right, new Vector2(0.63f, 0.05f), new Vector2(0.97f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(right, new Vector2(0.64f, 0.05f), new Vector2(0.975f, 0.96f), Vector2.zero, Vector2.zero);
             var frame = right.gameObject.AddComponent<Image>();
             frame.sprite = ValheimUi.FieldSprite;
             frame.type = Image.Type.Sliced;
@@ -132,7 +134,7 @@ namespace Deadheim.InventoryUI
             BuildAttributes();
 
             var statusRect = ValheimUi.Rect("Status", _root);
-            ValheimUi.Anchor(statusRect, new Vector2(0.03f, 0.02f), new Vector2(0.38f, 0.09f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(statusRect, new Vector2(0.025f, 0.01f), new Vector2(0.63f, 0.085f), Vector2.zero, Vector2.zero);
             _status = ValheimUi.Label(statusRect, "", 14, ValheimUi.Muted, TextAlignmentOptions.Center);
             ValheimUi.Stretch((RectTransform)_status.transform, 4f, 0f, 4f, 0f);
             _root.gameObject.SetActive(_open);
@@ -146,7 +148,7 @@ namespace Deadheim.InventoryUI
         private static void BuildPreview()
         {
             var frameRect = ValheimUi.Rect("CharacterFrame", _root);
-            ValheimUi.Anchor(frameRect, new Vector2(0.39f, 0.10f), new Vector2(0.62f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(frameRect, new Vector2(0.42f, 0.09f), new Vector2(0.63f, 0.96f), Vector2.zero, Vector2.zero);
             var frame = frameRect.gameObject.AddComponent<Image>();
             frame.sprite = ValheimUi.FieldSprite;
             frame.type = Image.Type.Sliced;
@@ -198,8 +200,9 @@ namespace Deadheim.InventoryUI
 
         private static void SetPreviewActive(bool active)
         {
-            if (_camera != null) _camera.enabled = active;
+            if (_camera != null) _camera.enabled = false;
             if (_light != null) _light.enabled = active;
+            _nextMaskUpdate = 0f;
         }
 
         private static void UpdatePreview()
@@ -212,10 +215,29 @@ namespace Deadheim.InventoryUI
             forward.Normalize();
             Vector3 target = player.transform.position + Vector3.up * 0.95f;
             Transform camera = _camera.transform;
-            camera.position = target + forward * 3.6f + Vector3.up * 0.15f;
+            Vector3 offset = Quaternion.Euler(0f, 22f, 0f) * forward;
+            camera.position = target + offset * 3.6f + Vector3.up * 0.15f;
             camera.rotation = Quaternion.LookRotation(target - camera.position, Vector3.up);
             // Luz de frente e levemente de cima, independente da hora do dia.
-            _light.transform.rotation = Quaternion.LookRotation(-forward + Vector3.down * 0.35f, Vector3.up);
+            _light.transform.rotation = Quaternion.LookRotation(-offset + Vector3.down * 0.35f, Vector3.up);
+
+            // Inclui as camadas dos renderers do jogador (peças que não estavam na máscara fixa sumiam).
+            float now = Time.unscaledTime;
+            if (now >= _nextMaskUpdate)
+            {
+                _nextMaskUpdate = now + 1f;
+                int mask = _previewMask;
+                foreach (Renderer renderer in player.GetComponentsInChildren<Renderer>(false))
+                    if (renderer.gameObject.layer != 0) mask |= 1 << renderer.gameObject.layer;
+                _camera.cullingMask = mask;
+                _light.cullingMask = mask;
+            }
+            // Câmera desligada e renderizada a ~25 fps: o painel não precisa de mais.
+            if (now >= _nextRender)
+            {
+                _nextRender = now + 0.04f;
+                _camera.Render();
+            }
         }
 
         private static void DestroyPreview()
@@ -243,9 +265,9 @@ namespace Deadheim.InventoryUI
             AddAttribute("Stamina", p => $"{p.GetStamina():0} / {p.GetMaxStamina():0}");
             AddAttribute("Eitr", p => $"{p.GetEitr():0} / {p.GetMaxEitr():0}");
             AddAttribute("Armadura", p => p.GetBodyArmor().ToString("0"));
-            AddAttribute("Velocidade de movimento",
+            AddAttribute("Velocidade",
                 p => (100f * (1f + p.GetEquipmentMovementModifier())).ToString("0") + "%");
-            AddAttribute("Peso carregado", p =>
+            AddAttribute("Peso", p =>
             {
                 Inventory inventory = p.GetInventory();
                 return inventory == null ? "-" : $"{inventory.GetTotalWeight():0} / {p.GetMaxCarryWeight():0}";
@@ -319,14 +341,11 @@ namespace Deadheim.InventoryUI
                     for (int index = 0; index < all.Count; index++)
                     {
                         ItemDrop.ItemData item = all[index];
-                        if (item == null) continue;
+                        // Só o equipado importa: craftar/mover itens não deve reconstruir o painel.
+                        if (item == null || !item.m_equipped) continue;
                         int h = item.m_dropPrefab != null ? item.m_dropPrefab.name.GetHashCode() : 0;
-                        h = h * 31 + item.m_stack;
                         h = h * 31 + item.m_quality;
                         h = h * 31 + (int)item.m_durability;
-                        h = h * 31 + item.m_gridPos.x;
-                        h = h * 31 + item.m_gridPos.y;
-                        h = h * 31 + (item.m_equipped ? 1 : 0);
                         items += h * 16777619 + 1;
                     }
                 }
@@ -361,9 +380,12 @@ namespace Deadheim.InventoryUI
                 ("Pernas", Find(equipped, ItemDrop.ItemData.ItemType.Legs)),
                 ("Capa", Find(equipped, ItemDrop.ItemData.ItemType.Shoulder)),
                 ("Utilitário", Find(equipped, ItemDrop.ItemData.ItemType.Utility)),
+                ("Berloque", Find(equipped, ItemDrop.ItemData.ItemType.Trinket)),
             };
-            foreach (ItemDrop.ItemData item in equipped.Where(item => !IsArmor(item.m_shared.m_itemType)))
-                cells.Add(("Mão", item));
+            Player player = Player.m_localPlayer;
+            cells.Add(("Mão direita", player?.m_rightItem));
+            cells.Add(("Mão esquerda", player?.m_leftItem));
+            cells.Add(("Munição", player?.m_ammoItem));
 
             const int columns = 3;
             const float cell = 56f;
@@ -446,7 +468,7 @@ namespace Deadheim.InventoryUI
         private static void AddItemTooltip(GameObject target, ItemDrop.ItemData item)
         {
             if (item == null || Plugin.ShowTooltips == null || !Plugin.ShowTooltips.Value) return;
-            try { ValheimUi.AddTooltip(target, ItemName(item), item.GetTooltip()); }
+            try { ValheimUi.AddLazyTooltip(target, ItemName(item), () => item.GetTooltip()); }
             catch (Exception exception) { Plugin.Log.LogWarning("Tooltip do item: " + exception.Message); }
         }
 
@@ -486,74 +508,47 @@ namespace Deadheim.InventoryUI
             if (selected == null) return;
             AddSection("PEÇA: " + ItemName(selected).ToUpperInvariant());
 
-            var unlocked = new HashSet<string>(TransmogBridge.Unlocked(), StringComparer.Ordinal);
+            List<string> unlocked = TransmogBridge.Unlocked();
             var chosenLooks = TransmogBridge.Chosen();
-            List<string> choices = unlocked
-                .Where(prefab => TransmogBridge.SlotOf(prefab) == TransmogBridge.SlotOf(_selectedReal))
-                .Where(prefab => TransmogBridge.WhyIncompatible(_selectedReal, prefab) == null)
-                .OrderBy(prefab => DisplayName(prefab), StringComparer.CurrentCultureIgnoreCase)
-                .ToList();
-            bool hasCurrentLook = chosenLooks.ContainsKey(_selectedReal);
+            string slotOfSelected = TransmogBridge.SlotOf(_selectedReal);
+            var choices = new List<string>();
+            foreach (string prefab in unlocked)
+            {
+                if (TransmogBridge.SlotOf(prefab) != slotOfSelected) continue;
+                if (TransmogBridge.WhyIncompatible(_selectedReal, prefab) != null) continue;
+                choices.Add(prefab);
+            }
+            choices.Sort((a, b) => string.Compare(DisplayName(a), DisplayName(b), StringComparison.CurrentCultureIgnoreCase));
+            chosenLooks.TryGetValue(_selectedReal, out string currentLook);
+            string restriction = TransmogBridge.ChangeRestriction();
 
             if (choices.Count == 0)
                 AddMessage("Ainda não há aparências compatíveis desbloqueadas para esta peça.");
-            foreach (string prefab in choices)
+            else
             {
-                string label = DisplayName(prefab);
-                if (prefab == _selectedAppearance) label += "  ·  prévia";
-                if (chosenLooks.TryGetValue(_selectedReal, out string chosen) && chosen == prefab)
-                    label += "  ·  atual";
-                Button choice = ValheimUi.Button(_list, label, 14);
-                choice.onClick.AddListener(() =>
-                {
-                    _selectedAppearance = prefab;
-                    TransmogBridge.Preview(_selectedReal + ">" + prefab);
-                    _ownsPreview = true;
-                    _statusText = "Prévia aplicada somente ao seu personagem.";
-                    _statusColor = ValheimUi.Green;
-                    _needsBuild = true;
-                    Refresh(true);
-                    ReleaseSelection();
-                });
+                const int columns = 5;
+                const float cell = 50f;
+                const float gap = 5f;
+                int rows = (choices.Count + columns - 1) / columns;
+                var grid = ValheimUi.Rect("Looks", _list);
+                var layout = grid.gameObject.AddComponent<GridLayoutGroup>();
+                layout.cellSize = new Vector2(cell, cell);
+                layout.spacing = new Vector2(gap, gap);
+                layout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+                layout.constraintCount = columns;
+                ValheimUi.FixedHeight(grid.gameObject, rows * (cell + gap));
+                foreach (string prefab in choices)
+                    AddLookTile(grid, prefab, prefab == currentLook, prefab == _selectedAppearance, restriction);
             }
 
-            string restriction = TransmogBridge.ChangeRestriction();
-            var actions = ValheimUi.Rect("AppearanceActions", _list);
-            var actionLayout = actions.gameObject.AddComponent<HorizontalLayoutGroup>();
-            actionLayout.spacing = 8f;
-            actionLayout.childControlWidth = true;
-            actionLayout.childControlHeight = true;
-            actionLayout.childForceExpandWidth = true;
-            actionLayout.childForceExpandHeight = false;
-            ValheimUi.FixedHeight(actions.gameObject, 48f);
-
-            Button apply = ValheimUi.Button(actions, "Aplicar", 14);
-            apply.interactable = _selectedAppearance != null && restriction == null;
-            apply.onClick.AddListener(() =>
-            {
-                string result = TransmogBridge.Apply(_selectedReal, _selectedAppearance);
-                _statusText = result;
-                _statusColor = string.IsNullOrEmpty(result) ? ValheimUi.Green : ValheimUi.Orange;
-                if (string.IsNullOrEmpty(result))
-                {
-                    _statusText = "Pedido enviado; o servidor validará a troca.";
-                    ClearOwnedPreview();
-                }
-                _needsBuild = true;
-                Refresh(true);
-                ReleaseSelection();
-            });
-
-            Button revert = ValheimUi.Button(actions, "Voltar ao original", 14);
-            revert.interactable = hasCurrentLook;
+            Button revert = ValheimUi.Button(_list, "Voltar ao original", 13);
+            revert.interactable = currentLook != null && restriction == null;
             revert.onClick.AddListener(() =>
             {
                 string result = TransmogBridge.Revert(_selectedReal);
                 ClearOwnedPreview();
                 _selectedAppearance = null;
-                _statusText = string.IsNullOrEmpty(result)
-                    ? "Pedido para voltar à aparência original enviado."
-                    : result;
+                _statusText = string.IsNullOrEmpty(result) ? "Voltando à aparência original..." : result;
                 _statusColor = string.IsNullOrEmpty(result) ? ValheimUi.Green : ValheimUi.Orange;
                 _needsBuild = true;
                 Refresh(true);
@@ -561,9 +556,63 @@ namespace Deadheim.InventoryUI
             });
 
             if (restriction != null)
-                AddMessage(restriction + " A prévia continua disponível aqui.");
+                AddMessage(restriction + " Você ainda pode ver a prévia.");
             else if (TransmogBridge.IsSuppressedHere())
                 AddMessage("Nesta área de arena ou raid, os outros jogadores verão a aparência original.");
+        }
+
+        // Um clique aplica a aparência (se o servidor permitir agora); caso contrário só mostra a prévia.
+        private static void AddLookTile(Transform parent, string prefab, bool current, bool previewing, string restriction)
+        {
+            var tile = ValheimUi.Rect("Look " + prefab, parent);
+            var background = tile.gameObject.AddComponent<Image>();
+            background.sprite = ValheimUi.FieldSprite;
+            background.type = Image.Type.Sliced;
+            background.color = current ? new Color(0.78f, 0.62f, 0.30f, 1f)
+                : previewing ? new Color(0.45f, 0.62f, 0.35f, 1f)
+                : new Color(0.30f, 0.25f, 0.19f, 0.9f);
+
+            var iconRect = ValheimUi.Rect("Icon", tile);
+            ValheimUi.Stretch(iconRect, 4f, 4f, 4f, 4f);
+            var icon = iconRect.gameObject.AddComponent<Image>();
+            icon.sprite = ValheimUi.ItemIcon(prefab);
+            icon.enabled = icon.sprite != null;
+            icon.preserveAspect = true;
+            icon.raycastTarget = false;
+            if (icon.sprite == null)
+            {
+                var fallback = ValheimUi.Label(tile, DisplayName(prefab), 10, ValheimUi.Beige, TextAlignmentOptions.Center);
+                ValheimUi.Stretch((RectTransform)fallback.transform, 2f, 2f, 2f, 2f);
+            }
+            string tip = current ? "Aparência atual" : restriction == null ? "Clique para aplicar" : "Clique para ver a prévia";
+            if (Plugin.ShowTooltips != null && Plugin.ShowTooltips.Value)
+                ValheimUi.AddTooltip(tile.gameObject, DisplayName(prefab), tip);
+
+            var button = tile.gameObject.AddComponent<Button>();
+            button.targetGraphic = background;
+            button.transition = Selectable.Transition.None;
+            button.navigation = new Navigation { mode = Navigation.Mode.None };
+            string real = _selectedReal;
+            button.onClick.AddListener(() =>
+            {
+                _selectedAppearance = prefab;
+                TransmogBridge.Preview(real + ">" + prefab);
+                _ownsPreview = true;
+                if (restriction == null)
+                {
+                    string result = TransmogBridge.Apply(real, prefab);
+                    _statusText = string.IsNullOrEmpty(result) ? "Aparência enviada; o servidor validará." : result;
+                    _statusColor = string.IsNullOrEmpty(result) ? ValheimUi.Green : ValheimUi.Orange;
+                }
+                else
+                {
+                    _statusText = "Prévia apenas no seu personagem.";
+                    _statusColor = ValheimUi.Muted;
+                }
+                _needsBuild = true;
+                Refresh(true);
+                ReleaseSelection();
+            });
         }
 
         private static string Prefab(ItemDrop.ItemData item) => item?.m_dropPrefab != null ? item.m_dropPrefab.name : "";
@@ -575,7 +624,17 @@ namespace Deadheim.InventoryUI
             return Localization.instance != null ? Localization.instance.Localize(raw) : raw;
         }
 
+        private static readonly Dictionary<string, string> NameCache = new Dictionary<string, string>();
+
         private static string DisplayName(string prefab)
+        {
+            if (NameCache.TryGetValue(prefab, out string cached)) return cached;
+            string result = ResolveDisplayName(prefab);
+            NameCache[prefab] = result;
+            return result;
+        }
+
+        private static string ResolveDisplayName(string prefab)
         {
             if (ObjectDB.instance != null)
             {
@@ -644,6 +703,7 @@ namespace Deadheim.InventoryUI
             _root = null;
             _gui = null;
             Attributes.Clear();
+            NameCache.Clear();
             _selectedReal = null;
             _selectedAppearance = null;
         }
