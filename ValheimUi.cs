@@ -106,6 +106,8 @@ namespace Deadheim.InventoryUI
             image.color = new Color(1f, 1f, 1f, 0.96f);
             var button = rect.gameObject.AddComponent<Button>();
             button.targetGraphic = image;
+            // Sem navegação por teclado/controle: evita o painel capturar WASD/setas depois de fechar.
+            button.navigation = new Navigation { mode = Navigation.Mode.None };
             button.colors = new ColorBlock
             {
                 normalColor = Color.white,
