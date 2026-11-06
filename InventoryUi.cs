@@ -38,6 +38,8 @@ namespace Deadheim.InventoryUI
         private static float _nextSignatureCheck;
         private static int _lastSignature;
 
+        internal static bool IsOpen => _open;
+
         internal static void Open(InventoryGui gui)
         {
             _open = true;
@@ -707,7 +709,25 @@ namespace Deadheim.InventoryUI
     [HarmonyPatch(typeof(InventoryGui), nameof(InventoryGui.Show))]
     internal static class InventoryGuiShowPatch
     {
-        private static void Postfix(InventoryGui __instance) => InventoryUi.Open(__instance);
+        private static void Postfix(InventoryGui __instance)
+        {
+            if (Plugin.AutoOpen.Value) InventoryUi.Open(__instance);
+        }
+    }
+
+    /// <summary>Porta usada pelo mod Deadheim (Central Deadheim, icone Ficha): abre/fecha o painel por reflexao.</summary>
+    public static class InventoryUiApi
+    {
+        /// <summary>Marcado = a ficha abre sempre com o inventario (salvo na config do jogador).</summary>
+        public static bool Sempre => Plugin.AutoOpen != null && Plugin.AutoOpen.Value;
+
+        public static void Alternar()
+        {
+            Plugin.AutoOpen.Value = !Plugin.AutoOpen.Value;
+            if (!InventoryGui.IsVisible() || InventoryGui.instance == null) return;
+            if (Plugin.AutoOpen.Value) InventoryUi.Open(InventoryGui.instance);
+            else InventoryUi.Close();
+        }
     }
 
     [HarmonyPatch(typeof(Game), nameof(Game.Logout))]

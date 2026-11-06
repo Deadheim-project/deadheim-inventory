@@ -14,11 +14,12 @@ namespace Deadheim.InventoryUI
     {
         public const string Guid = "Deadheim.InventoryUI";
         public const string Name = "Deadheim Inventory UI";
-        public const string Version = "0.1.0";
+        public const string Version = "0.1.1";
 
         internal static ManualLogSource Log;
         internal static ConfigEntry<float> UiScale;
         internal static ConfigEntry<bool> ReduceMotion;
+        internal static ConfigEntry<bool> AutoOpen;
         internal static ConfigEntry<int> LowDurabilityPercent;
         internal static ConfigEntry<bool> ShowTooltips;
         internal static ConfigEntry<Vector2> PanelOffset;
@@ -30,6 +31,8 @@ namespace Deadheim.InventoryUI
             UiScale = Config.Bind("Interface", "Scale", 1f,
                 new ConfigDescription("Escala visual do painel de equipamento.", new AcceptableValueRange<float>(0.8f, 1.2f)));
 
+            AutoOpen = Config.Bind("Interface", "AbrirAoAbrirInventario", false,
+                "Marcado: a ficha do personagem abre sempre com o inventario. Alterna pelo icone Ficha da Central Deadheim.");
             ReduceMotion = Config.Bind("Interface", "ReduceMotion", false,
                 "Remove as transições suaves de cor dos botões do painel.");
             LowDurabilityPercent = Config.Bind("Interface", "LowDurabilityPercent", 25,
