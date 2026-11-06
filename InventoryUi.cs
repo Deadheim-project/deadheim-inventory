@@ -13,7 +13,7 @@ namespace Deadheim.InventoryUI
     // coluna esquerda = slots de equipamento + aparência; coluna direita = Atributos.
     internal static class InventoryUi
     {
-        private const float PanelWidth = 700f;
+        private const float PanelWidth = 760f;
 
         private static InventoryGui _gui;
         private static RectTransform _root;
@@ -31,6 +31,10 @@ namespace Deadheim.InventoryUI
         private static string _selectedReal;
         private static string _selectedAppearance;
         private static bool _ownsPreview;
+        private static Camera _camera;
+        private static Light _light;
+        private static RenderTexture _texture;
+        private static int _previewMask;
 
         internal static void Open(InventoryGui gui)
         {
@@ -39,6 +43,7 @@ namespace Deadheim.InventoryUI
             _statusText = "";
             _statusColor = ValheimUi.Muted;
             _root.gameObject.SetActive(true);
+            SetPreviewActive(true);
             _needsBuild = true;
             Refresh(true);
         }
@@ -46,6 +51,7 @@ namespace Deadheim.InventoryUI
         internal static void Close()
         {
             _open = false;
+            SetPreviewActive(false);
             if (_root != null) _root.gameObject.SetActive(false);
             ClearOwnedPreview();
             _selectedAppearance = null;
@@ -79,6 +85,7 @@ namespace Deadheim.InventoryUI
                 _root.localScale = new Vector3(scale, scale, 1f);
 
             UpdateAttributes();
+            UpdatePreview();
             if (Time.unscaledTime < _nextSignatureCheck) return;
             _nextSignatureCheck = Time.unscaledTime + 0.35f;
             Refresh(false);
@@ -86,7 +93,7 @@ namespace Deadheim.InventoryUI
 
         private static bool EnsureCreated(InventoryGui gui)
         {
-            if (gui == null || gui.m_crafting == null || !ValheimUi.EnsureAssets()) return false;
+            if (gui == null || gui.m_player == null || !ValheimUi.EnsureAssets()) return false;
             if (_gui == gui && _root != null) return true;
 
             ReleaseSelection();
@@ -94,8 +101,9 @@ namespace Deadheim.InventoryUI
             if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
             _gui = gui;
 
-            // Filho do crafting, ancorado fora da borda esquerda dele (pivô na direita).
-            _root = ValheimUi.Rect("DeadheimInventoryPanel", gui.m_crafting);
+            // Filho do painel do jogador (inventário), ancorado fora da borda esquerda dele (pivô na direita):
+            // assim não cobre a grade do inventário nem o crafting.
+            _root = ValheimUi.Rect("DeadheimInventoryPanel", gui.m_player);
             _root.anchorMin = new Vector2(0f, 0f);
             _root.anchorMax = new Vector2(0f, 1f);
             _root.pivot = new Vector2(1f, 0.5f);
@@ -107,11 +115,13 @@ namespace Deadheim.InventoryUI
             background.color = new Color(1f, 1f, 1f, 0.99f);
 
             var left = ValheimUi.Rect("Equipment", _root);
-            ValheimUi.Anchor(left, new Vector2(0.03f, 0.10f), new Vector2(0.58f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(left, new Vector2(0.03f, 0.10f), new Vector2(0.40f, 0.95f), Vector2.zero, Vector2.zero);
             _list = ValheimUi.ScrollList(left, 5f);
 
+            BuildPreview();
+
             var right = ValheimUi.Rect("AttributesFrame", _root);
-            ValheimUi.Anchor(right, new Vector2(0.60f, 0.05f), new Vector2(0.97f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(right, new Vector2(0.65f, 0.05f), new Vector2(0.97f, 0.95f), Vector2.zero, Vector2.zero);
             var frame = right.gameObject.AddComponent<Image>();
             frame.sprite = ValheimUi.FieldSprite;
             frame.type = Image.Type.Sliced;
@@ -122,11 +132,103 @@ namespace Deadheim.InventoryUI
             BuildAttributes();
 
             var statusRect = ValheimUi.Rect("Status", _root);
-            ValheimUi.Anchor(statusRect, new Vector2(0.03f, 0.02f), new Vector2(0.58f, 0.09f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(statusRect, new Vector2(0.03f, 0.02f), new Vector2(0.40f, 0.09f), Vector2.zero, Vector2.zero);
             _status = ValheimUi.Label(statusRect, "", 14, ValheimUi.Muted, TextAlignmentOptions.Center);
             ValheimUi.Stretch((RectTransform)_status.transform, 4f, 0f, 4f, 0f);
             _root.gameObject.SetActive(_open);
             return true;
+        }
+
+        // ---------- Prévia 3D do personagem ----------
+        // Câmera própria renderiza só o jogador local (com o que ele veste agora, inclusive a
+        // aparência aplicada) numa RenderTexture; mostrada num RawImage no painel.
+
+        private static void BuildPreview()
+        {
+            var frameRect = ValheimUi.Rect("CharacterFrame", _root);
+            ValheimUi.Anchor(frameRect, new Vector2(0.41f, 0.10f), new Vector2(0.64f, 0.95f), Vector2.zero, Vector2.zero);
+            var frame = frameRect.gameObject.AddComponent<Image>();
+            frame.sprite = ValheimUi.FieldSprite;
+            frame.type = Image.Type.Sliced;
+            frame.color = new Color(0.20f, 0.16f, 0.12f, 0.85f);
+
+            var imageRect = ValheimUi.Rect("Character", frameRect);
+            ValheimUi.Stretch(imageRect, 4f, 4f, 4f, 4f);
+            var raw = imageRect.gameObject.AddComponent<RawImage>();
+            raw.raycastTarget = false;
+            EnsurePreviewObjects();
+            raw.texture = _texture;
+            var fitter = imageRect.gameObject.AddComponent<AspectRatioFitter>();
+            fitter.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+            fitter.aspectRatio = (float)_texture.width / _texture.height;
+        }
+
+        private static void EnsurePreviewObjects()
+        {
+            if (_texture == null)
+            {
+                _texture = new RenderTexture(384, 768, 24, RenderTextureFormat.ARGB32) { name = "DeadheimCharacterPreview" };
+                _texture.Create();
+            }
+            if (_camera != null) return;
+            _previewMask = LayerMask.GetMask("character", "character_net", "character_ghost", "character_noenv", "item");
+            var cameraObject = new GameObject("DeadheimPreviewCamera");
+            UnityEngine.Object.DontDestroyOnLoad(cameraObject);
+            _camera = cameraObject.AddComponent<Camera>();
+            _camera.clearFlags = CameraClearFlags.SolidColor;
+            _camera.backgroundColor = new Color(0f, 0f, 0f, 0f);
+            _camera.cullingMask = _previewMask;
+            _camera.fieldOfView = 30f;
+            _camera.nearClipPlane = 0.5f;
+            _camera.farClipPlane = 6.5f;
+            _camera.allowHDR = false;
+            _camera.allowMSAA = false;
+            _camera.targetTexture = _texture;
+            _camera.enabled = false;
+
+            var lightObject = new GameObject("DeadheimPreviewLight");
+            lightObject.transform.SetParent(cameraObject.transform, false);
+            _light = lightObject.AddComponent<Light>();
+            _light.type = LightType.Directional;
+            _light.intensity = 1.1f;
+            _light.shadows = LightShadows.None;
+            _light.cullingMask = _previewMask;
+            _light.enabled = false;
+        }
+
+        private static void SetPreviewActive(bool active)
+        {
+            if (_camera != null) _camera.enabled = active;
+            if (_light != null) _light.enabled = active;
+        }
+
+        private static void UpdatePreview()
+        {
+            Player player = Player.m_localPlayer;
+            if (_camera == null || player == null) return;
+            Vector3 forward = player.transform.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.001f) forward = Vector3.forward;
+            forward.Normalize();
+            Vector3 target = player.transform.position + Vector3.up * 0.95f;
+            Transform camera = _camera.transform;
+            camera.position = target + forward * 3.6f + Vector3.up * 0.15f;
+            camera.rotation = Quaternion.LookRotation(target - camera.position, Vector3.up);
+            // Luz de frente e levemente de cima, independente da hora do dia.
+            _light.transform.rotation = Quaternion.LookRotation(-forward + Vector3.down * 0.35f, Vector3.up);
+        }
+
+        private static void DestroyPreview()
+        {
+            if (_camera != null) UnityEngine.Object.Destroy(_camera.gameObject);
+            _camera = null;
+            _light = null;
+            if (_texture != null)
+            {
+                _texture.Release();
+                UnityEngine.Object.Destroy(_texture);
+            }
+            _texture = null;
         }
 
         // ---------- Atributos ----------
@@ -165,7 +267,7 @@ namespace Deadheim.InventoryUI
             var label = ValheimUi.Label(row, name, 15, ValheimUi.Beige, TextAlignmentOptions.MidlineLeft);
             label.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
             var value = ValheimUi.Label(row, "-", 15, ValheimUi.Beige, TextAlignmentOptions.MidlineRight);
-            ValheimUi.FixedWidth(value.gameObject, 110f);
+            ValheimUi.FixedWidth(value.gameObject, 92f);
             Attributes.Add((name, read, value));
         }
 
@@ -263,7 +365,7 @@ namespace Deadheim.InventoryUI
             foreach (ItemDrop.ItemData item in equipped.Where(item => !IsArmor(item.m_shared.m_itemType)))
                 cells.Add(("Mão", item));
 
-            const int columns = 4;
+            const int columns = 3;
             const float cell = 72f;
             const float gap = 6f;
             int rows = (cells.Count + columns - 1) / columns;
@@ -538,6 +640,7 @@ namespace Deadheim.InventoryUI
         {
             Close();
             if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
+            DestroyPreview();
             _root = null;
             _gui = null;
             Attributes.Clear();
