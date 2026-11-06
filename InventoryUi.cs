@@ -13,7 +13,7 @@ namespace Deadheim.InventoryUI
     // coluna esquerda = slots de equipamento + aparência; coluna direita = Atributos.
     internal static class InventoryUi
     {
-        private const float PanelWidth = 760f;
+        private const float PanelWidth = 600f;
 
         private static InventoryGui _gui;
         private static RectTransform _root;
@@ -93,7 +93,7 @@ namespace Deadheim.InventoryUI
 
         private static bool EnsureCreated(InventoryGui gui)
         {
-            if (gui == null || gui.m_player == null || !ValheimUi.EnsureAssets()) return false;
+            if (gui == null || gui.m_crafting == null || !ValheimUi.EnsureAssets()) return false;
             if (_gui == gui && _root != null) return true;
 
             ReleaseSelection();
@@ -101,9 +101,9 @@ namespace Deadheim.InventoryUI
             if (_root != null) UnityEngine.Object.Destroy(_root.gameObject);
             _gui = gui;
 
-            // Filho do painel do jogador (inventário), ancorado fora da borda esquerda dele (pivô na direita):
-            // assim não cobre a grade do inventário nem o crafting.
-            _root = ValheimUi.Rect("DeadheimInventoryPanel", gui.m_player);
+            // Filho do crafting, ancorado fora da borda esquerda dele (pivô na direita): ocupa o espaço
+            // livre entre a grade do inventário (canto superior esquerdo) e o crafting.
+            _root = ValheimUi.Rect("DeadheimInventoryPanel", gui.m_crafting);
             _root.anchorMin = new Vector2(0f, 0f);
             _root.anchorMax = new Vector2(0f, 1f);
             _root.pivot = new Vector2(1f, 0.5f);
@@ -115,13 +115,13 @@ namespace Deadheim.InventoryUI
             background.color = new Color(1f, 1f, 1f, 0.99f);
 
             var left = ValheimUi.Rect("Equipment", _root);
-            ValheimUi.Anchor(left, new Vector2(0.03f, 0.10f), new Vector2(0.40f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(left, new Vector2(0.03f, 0.10f), new Vector2(0.38f, 0.95f), Vector2.zero, Vector2.zero);
             _list = ValheimUi.ScrollList(left, 5f);
 
             BuildPreview();
 
             var right = ValheimUi.Rect("AttributesFrame", _root);
-            ValheimUi.Anchor(right, new Vector2(0.65f, 0.05f), new Vector2(0.97f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(right, new Vector2(0.63f, 0.05f), new Vector2(0.97f, 0.95f), Vector2.zero, Vector2.zero);
             var frame = right.gameObject.AddComponent<Image>();
             frame.sprite = ValheimUi.FieldSprite;
             frame.type = Image.Type.Sliced;
@@ -132,7 +132,7 @@ namespace Deadheim.InventoryUI
             BuildAttributes();
 
             var statusRect = ValheimUi.Rect("Status", _root);
-            ValheimUi.Anchor(statusRect, new Vector2(0.03f, 0.02f), new Vector2(0.40f, 0.09f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(statusRect, new Vector2(0.03f, 0.02f), new Vector2(0.38f, 0.09f), Vector2.zero, Vector2.zero);
             _status = ValheimUi.Label(statusRect, "", 14, ValheimUi.Muted, TextAlignmentOptions.Center);
             ValheimUi.Stretch((RectTransform)_status.transform, 4f, 0f, 4f, 0f);
             _root.gameObject.SetActive(_open);
@@ -146,7 +146,7 @@ namespace Deadheim.InventoryUI
         private static void BuildPreview()
         {
             var frameRect = ValheimUi.Rect("CharacterFrame", _root);
-            ValheimUi.Anchor(frameRect, new Vector2(0.41f, 0.10f), new Vector2(0.64f, 0.95f), Vector2.zero, Vector2.zero);
+            ValheimUi.Anchor(frameRect, new Vector2(0.39f, 0.10f), new Vector2(0.62f, 0.95f), Vector2.zero, Vector2.zero);
             var frame = frameRect.gameObject.AddComponent<Image>();
             frame.sprite = ValheimUi.FieldSprite;
             frame.type = Image.Type.Sliced;
@@ -264,10 +264,10 @@ namespace Deadheim.InventoryUI
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = true;
 
-            var label = ValheimUi.Label(row, name, 15, ValheimUi.Beige, TextAlignmentOptions.MidlineLeft);
+            var label = ValheimUi.Label(row, name, 13, ValheimUi.Beige, TextAlignmentOptions.MidlineLeft);
             label.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
-            var value = ValheimUi.Label(row, "-", 15, ValheimUi.Beige, TextAlignmentOptions.MidlineRight);
-            ValheimUi.FixedWidth(value.gameObject, 92f);
+            var value = ValheimUi.Label(row, "-", 13, ValheimUi.Beige, TextAlignmentOptions.MidlineRight);
+            ValheimUi.FixedWidth(value.gameObject, 78f);
             Attributes.Add((name, read, value));
         }
 
@@ -366,7 +366,7 @@ namespace Deadheim.InventoryUI
                 cells.Add(("Mão", item));
 
             const int columns = 3;
-            const float cell = 72f;
+            const float cell = 56f;
             const float gap = 6f;
             int rows = (cells.Count + columns - 1) / columns;
             var grid = ValheimUi.Rect("Slots", _list);
